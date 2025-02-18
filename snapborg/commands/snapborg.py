@@ -43,9 +43,6 @@ def main():
     cli = argparse.ArgumentParser()
     cli.add_argument("--cfg", default="/etc/snapborg.yaml", help="Snapborg config file location")
     cli.add_argument("--dryrun", action="store_true", help="Don't actually execute commands")
-    cli.add_argument("--bind-mount", action="store_true",
-                     help="Bind mount snapshots so that file paths are consistent, which means caching works much "
-                          "better. Requires running as root.")
     cli.add_argument("--snapper-config", default=None, dest="snapper_config",
                      help="The name of a snapper config to operate on")
     subp = cli.add_subparsers(dest="mode", required=True)
@@ -80,8 +77,7 @@ def main():
 
     elif args.mode == "backup":
         backup(cfg, snapper_configs=configs, recreate=args.recreate,
-               prune_old_backups=not args.no_prune, dryrun=args.dryrun,
-               bind_mount=args.bind_mount)
+               prune_old_backups=not args.no_prune, dryrun=args.dryrun)
 
     elif args.mode == "list":
         list_snapshots(cfg, configs=configs)
@@ -135,14 +131,14 @@ def get_configs(cfg, config_arg=None):
 
 
 
-def backup(cfg, snapper_configs, recreate, prune_old_backups, dryrun, bind_mount):
+def backup(cfg, snapper_configs, recreate, prune_old_backups, dryrun):
     """
     Backup all given snapper configs, optionally recreating the archives
     """
     status_map = {}
     for config in snapper_configs:
         try:
-            backup_config(config, recreate, dryrun, bind_mount)
+            backup_config(config, recreate, dryrun)
             status_map[config["name"]] = True
         except Exception as e:
             status_map[config["name"]] = e
@@ -161,7 +157,7 @@ def backup(cfg, snapper_configs, recreate, prune_old_backups, dryrun, bind_mount
         prune(cfg, snapper_configs, dryrun)
 
 
-def backup_config(config, recreate, dryrun, bind_mount):
+def backup_config(config, recreate, dryrun):
     """
     Backup a single snapper config
     """
@@ -190,12 +186,9 @@ def backup_config(config, recreate, dryrun, bind_mount):
             **retention_config) if(not snapshot.is_backed_up() or recreate)
     ]
 
-    mount_path = f'/run/snapborg/{name}' if bind_mount else None
-
     with snapper_config.prevent_cleanup(snapshots=candidates, dryrun=dryrun):
         results = [ backup_candidate(snapper_config, repo, candidate, recreate,
-                                     config["exclude_patterns"], dryrun=dryrun,
-                                     mount_path=mount_path)
+                                     config["exclude_patterns"], dryrun=dryrun)
                 for candidate in candidates ]
     has_error = any(not result for result in results)
 
@@ -219,7 +212,7 @@ def backup_config(config, recreate, dryrun, bind_mount):
 
 
 def backup_candidate(snapper_config, borg_repo, candidate, recreate,
-                     exclude_patterns, dryrun=False, mount_path=None):
+                     exclude_patterns, dryrun=False):
     print(f"Backing up snapshot number {candidate.get_number()} "
           f"from {candidate.get_date().isoformat()}...")
     path_to_backup = candidate.get_path()
@@ -229,7 +222,7 @@ def backup_candidate(snapper_config, borg_repo, candidate, recreate,
             borg_repo.delete(backup_name, dryrun=dryrun)
             candidate.purge_userdata(dryrun=dryrun)
         borg_repo.backup(backup_name, path_to_backup, timestamp=candidate.get_date_utc(),
-                         exclude_patterns=exclude_patterns, dryrun=dryrun, mount_path=mount_path)
+                         exclude_patterns=exclude_patterns, dryrun=dryrun)
         candidate.set_backed_up(dryrun=dryrun)
         return True
     except subprocess.CalledProcessError as e:
